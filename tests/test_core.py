@@ -113,6 +113,44 @@ class TestNormalize:
         assert row["Dış Arama Süresi"] == "00:43:12"
         assert row["Dış Arama Çaldırma Süresi"] == "01:31:48"
 
+    def test_prefers_outbound_total_over_tiny_avg(self):
+        """call_duration=1 gibi avg alanları yerine toplam outbound süreyi al."""
+        row = normalize_row(
+            {
+                "extension": 608,
+                "agent_name": "selcuk",
+                "outbound_calls": 891,
+                "call_duration": 1,
+                "ring_time": 2,
+                "outbound_talk_time": 4644,  # 01:17:24
+                "outbound_ring_time": 8892,  # 02:28:12
+            }
+        )
+        assert row["Dahili Adı"] == "selcuk"
+        assert row["Dış Arama Sayısı"] == 891
+        assert row["Dış Arama Süresi"] == "01:17:24"
+        assert row["Dış Arama Çaldırma Süresi"] == "02:28:12"
+
+    def test_deep_nested_stats(self):
+        row = normalize_row(
+            {
+                "extension": 583,
+                "displayName": "adem",
+                "stats": {
+                    "outbound": {
+                        "count": 365,
+                        "talk_time": 1908,
+                        "ring_time": 4176,
+                    }
+                },
+            }
+        )
+        assert row["Dahili Adı"] == "adem"
+        assert row["Dahili"] == 583
+        assert row["Dış Arama Sayısı"] == 365
+        assert row["Dış Arama Süresi"] == "00:31:48"
+        assert row["Dış Arama Çaldırma Süresi"] == "01:09:36"
+
     def test_missing_fields_defaults(self):
         row = normalize_row({})
         assert row["Dahili Adı"] == ""
