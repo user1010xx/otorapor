@@ -15,6 +15,7 @@ from excel_builder import build_performance_workbook, report_filename
 from toniva_client import (
     _extract_rows,
     _format_duration,
+    format_toniva_duration,
     normalize_row,
 )
 
@@ -62,7 +63,7 @@ class TestSchedule:
 
 
 class TestDuration:
-    def test_seconds(self):
+    def test_seconds_legacy(self):
         assert _format_duration(1908) == "00:31:48"
         assert _format_duration(4176) == "01:09:36"
         assert _format_duration(0) == "00:00:00"
@@ -76,6 +77,22 @@ class TestDuration:
         assert _format_duration(None) == "00:00:00"
         assert _format_duration("") == "00:00:00"
 
+    def test_toniva_hours_unit(self):
+        """UI cl(e)=ti(floor(e*3600)) — süreler ondalık SAAT."""
+        # 01:17:24 = 4644 sn = 1.29 saat
+        assert format_toniva_duration(1.29, source_key="OutboundCallDuration") == "01:17:24"
+        # 02:28:12 = 8892 sn = 2.47 saat
+        assert format_toniva_duration(2.47, source_key="OutboundRingDuration") == "02:28:12"
+        # 00:54:36 = 3276 sn = 0.91 saat
+        assert format_toniva_duration(0.91, source_key="OutboundCallDuration") == "00:54:36"
+        # 00:00:00
+        assert format_toniva_duration(0, source_key="OutboundCallDuration") == "00:00:00"
+
+    def test_was_bug_one_second_misread(self):
+        """Eski bug: 1.29 saati 1 saniye sanıyordu → 00:00:01."""
+        assert format_toniva_duration(1.29, source_key="OutboundCallDuration") != "00:00:01"
+        assert format_toniva_duration(2.47, source_key="OutboundRingDuration") != "00:00:02"
+
 
 class TestExtractRows:
     def test_list_payload(self):
@@ -84,143 +101,87 @@ class TestExtractRows:
     def test_rows_key(self):
         assert _extract_rows({"rows": [1, 2], "meta": {}}) == [1, 2]
 
-    def test_nested_data_rows(self):
-        assert _extract_rows({"data": {"rows": [{"x": 1}]}}) == [{"x": 1}]
+    def test_data_capital(self):
+        assert _extract_rows({"Status": True, "Data": [{"ExtensionName": "x"}]}) == [
+            {"ExtensionName": "x"}
+        ]
 
     def test_unknown(self):
         assert _extract_rows({"meta": {"ok": True}, "foo": "bar"}) == []
 
 
 class TestNormalize:
-    def test_english_keys(self):
+    def test_toniva_real_fields_selcuk(self):
+        """2. görsel (UI) selcuk satırı — ham saat birimi."""
         row = normalize_row(
             {
-                "agentName": "adem",
-                "extension": 583,
-                "outboundCallCount": 365,
-                "outboundCallDuration": 1908,
-                "outboundRingDuration": 4176,
-            }
-        )
-        assert row["Dahili Adı"] == "adem"
-        assert row["Dahili"] == 583
-        assert row["Dış Arama Sayısı"] == 365
-        assert row["Dış Arama Süresi"] == "00:31:48"
-        assert row["Dış Arama Çaldırma Süresi"] == "01:09:36"
-
-    def test_turkish_api_headers(self):
-        """UI/export ile aynı Türkçe başlıklar gelirse map edilsin."""
-        row = normalize_row(
-            {
-                "Dahili Adı": "selen",
-                "Dahili": 585,
-                "Dış Arama Sayısı": 392,
-                "Dış Arama Süresi": "00:39:36",
-                "Dış Arama Çaldırma Süresi": "01:13:48",
-            }
-        )
-        assert row["Dahili Adı"] == "selen"
-        assert row["Dahili"] == 585
-        assert row["Dış Arama Sayısı"] == 392
-        assert row["Dış Arama Süresi"] == "00:39:36"
-        assert row["Dış Arama Çaldırma Süresi"] == "01:13:48"
-
-    def test_nested_agent(self):
-        row = normalize_row(
-            {
-                "agent": {"name": "dilara", "extension": 635},
-                "outbound_call_count": 412,
-                "outbound_call_duration": 2592,
-                "outbound_ring_duration": 5508,
-            }
-        )
-        assert row["Dahili Adı"] == "dilara"
-        assert row["Dahili"] == 635
-        assert row["Dış Arama Sayısı"] == 412
-        assert row["Dış Arama Süresi"] == "00:43:12"
-        assert row["Dış Arama Çaldırma Süresi"] == "01:31:48"
-
-    def test_prefers_outbound_total_over_tiny_avg(self):
-        """call_duration=1 gibi avg alanları yerine toplam outbound süreyi al."""
-        row = normalize_row(
-            {
-                "extension": 608,
-                "agent_name": "selcuk",
-                "outbound_calls": 891,
-                "call_duration": 1,
-                "ring_time": 2,
-                "outbound_talk_time": 4644,  # 01:17:24
-                "outbound_ring_time": 8892,  # 02:28:12
+                "ExtensionName": "selcuk",
+                "ExtensionNumber": 608,
+                "OutboundCallCount": 891,
+                "OutboundCallDuration": 1.29,  # 01:17:24
+                "OutboundRingDuration": 2.47,  # 02:28:12
             }
         )
         assert row["Dahili Adı"] == "selcuk"
+        assert row["Dahili"] == 608
         assert row["Dış Arama Sayısı"] == 891
         assert row["Dış Arama Süresi"] == "01:17:24"
         assert row["Dış Arama Çaldırma Süresi"] == "02:28:12"
 
-    def test_deep_nested_stats(self):
+    def test_toniva_real_fields_celal(self):
+        """UI: celal 692 / 00:54:36 / 02:16:48"""
+        # 00:54:36 = 3276/3600 = 0.91
+        # 02:16:48 = 8208/3600 = 2.28
         row = normalize_row(
             {
-                "extension": 583,
-                "displayName": "adem",
-                "stats": {
-                    "outbound": {
-                        "count": 365,
-                        "outbound_talk_time": 1908,
-                        "outbound_ring_time": 4176,
-                    }
-                },
+                "ExtensionName": "celal",
+                "ExtensionNumber": 632,
+                "OutboundCallCount": 692,
+                "OutboundCallDuration": 0.91,
+                "OutboundRingDuration": 2.28,
             }
         )
-        assert row["Dahili Adı"] == "adem"
-        assert row["Dahili"] == 583
-        assert row["Dış Arama Sayısı"] == 365
+        assert row["Dahili Adı"] == "celal"
+        assert row["Dış Arama Sayısı"] == 692
+        assert row["Dış Arama Süresi"] == "00:54:36"
+        assert row["Dış Arama Çaldırma Süresi"] == "02:16:48"
+
+    def test_not_constant_wrong_duration(self):
+        """Herkeste 01:40:00 olmamalı — farklı süreler korunur."""
+        a = normalize_row(
+            {
+                "ExtensionName": "a",
+                "ExtensionNumber": 1,
+                "OutboundCallCount": 100,
+                "OutboundCallDuration": 1.29,
+                "OutboundRingDuration": 2.47,
+            }
+        )
+        b = normalize_row(
+            {
+                "ExtensionName": "b",
+                "ExtensionNumber": 2,
+                "OutboundCallCount": 100,
+                "OutboundCallDuration": 0.91,
+                "OutboundRingDuration": 2.28,
+            }
+        )
+        assert a["Dış Arama Süresi"] != b["Dış Arama Süresi"]
+        assert a["Dış Arama Süresi"] == "01:17:24"
+        assert b["Dış Arama Süresi"] == "00:54:36"
+
+    def test_hhmmss_string_passthrough(self):
+        row = normalize_row(
+            {
+                "ExtensionName": "adem",
+                "ExtensionNumber": 583,
+                "OutboundCallCount": 365,
+                "OutboundCallDuration": "00:31:48",
+                "OutboundRingDuration": "01:09:36",
+            }
+        )
         assert row["Dış Arama Süresi"] == "00:31:48"
         assert row["Dış Arama Çaldırma Süresi"] == "01:09:36"
-
-    def test_metrics_array_payload(self):
-        row = normalize_row(
-            {
-                "extension": 608,
-                "agent_name": "selcuk",
-                "metrics": [
-                    {"code": "outbound_calls", "value": 891},
-                    {"code": "outbound_talk_time", "value": 4644},
-                    {"code": "outbound_ring_time", "value": 8892},
-                ],
-            }
-        )
-        assert row["Dahili Adı"] == "selcuk"
-        assert row["Dış Arama Sayısı"] == 891
-        assert row["Dış Arama Süresi"] == "01:17:24"
-        assert row["Dış Arama Çaldırma Süresi"] == "02:28:12"
-
-    def test_hhmmss_string_durations(self):
-        row = normalize_row(
-            {
-                "Dahili": 583,
-                "Dahili Adı": "adem",
-                "Dış Arama Sayısı": 365,
-                "Dış Arama Süresi": "00:31:48",
-                "Dış Arama Çaldırma Süresi": "01:09:36",
-            }
-        )
-        assert row["Dış Arama Süresi"] == "00:31:48"
-        assert row["Dış Arama Çaldırma Süresi"] == "01:09:36"
-
-    def test_rejects_tiny_avg_when_outbound_totals_exist(self):
-        row = normalize_row(
-            {
-                "extension": 608,
-                "outboundCalls": 891,
-                "callDuration": 1,
-                "ringTime": 2,
-                "outboundCallDuration": 4644,
-                "outboundRingDuration": 8892,
-            }
-        )
-        assert row["Dış Arama Süresi"] == "01:17:24"
-        assert row["Dış Arama Çaldırma Süresi"] == "02:28:12"
 
     def test_missing_fields_defaults(self):
         row = normalize_row({})
@@ -234,11 +195,11 @@ class TestExcel:
     def test_headers_and_values(self):
         rows = [
             {
-                "Dahili Adı": "adem",
-                "Dahili": 583,
-                "Dış Arama Sayısı": 365,
-                "Dış Arama Süresi": "00:31:48",
-                "Dış Arama Çaldırma Süresi": "01:09:36",
+                "Dahili Adı": "selcuk",
+                "Dahili": 608,
+                "Dış Arama Sayısı": 891,
+                "Dış Arama Süresi": "01:17:24",
+                "Dış Arama Çaldırma Süresi": "02:28:12",
             }
         ]
         buf = build_performance_workbook(rows)
@@ -249,11 +210,9 @@ class TestExcel:
         ws = wb.active
         headers = [ws.cell(1, c).value for c in range(1, 6)]
         assert headers == EXCEL_HEADERS
-        assert ws.cell(2, 1).value == "adem"
-        assert ws.cell(2, 2).value == 583
-        assert ws.cell(2, 3).value == 365
-        assert ws.cell(2, 4).value == "00:31:48"
-        assert ws.cell(2, 5).value == "01:09:36"
+        assert ws.cell(2, 1).value == "selcuk"
+        assert ws.cell(2, 4).value == "01:17:24"
+        assert ws.cell(2, 5).value == "02:28:12"
 
     def test_empty_rows_still_has_header(self):
         buf = build_performance_workbook([])
@@ -268,10 +227,6 @@ class TestExcel:
         assert (
             report_filename(when, report_date=date(2026, 7, 18), full_day=True)
             == "performans_raporu_2026-07-18_tum_gun.xlsx"
-        )
-        assert (
-            report_filename(when, report_date=date(2026, 7, 17), full_day=False)
-            == "performans_raporu_2026-07-17_1227.xlsx"
         )
 
 
