@@ -10,12 +10,39 @@ import pytest
 from openpyxl import load_workbook
 
 from config import EXCEL_HEADERS, SCHEDULE_TIMES
+from date_utils import DateParseError, join_command_args, parse_report_date
 from excel_builder import build_performance_workbook, report_filename
 from toniva_client import (
     _extract_rows,
     _format_duration,
     normalize_row,
 )
+
+
+class TestDateParse:
+    def test_dot_format(self):
+        assert parse_report_date("18.07.2026") == date(2026, 7, 18)
+        assert parse_report_date("1.7.2026") == date(2026, 7, 1)
+
+    def test_short_year(self):
+        assert parse_report_date("18.07.26") == date(2026, 7, 18)
+
+    def test_iso(self):
+        assert parse_report_date("2026-07-18") == date(2026, 7, 18)
+
+    def test_slash(self):
+        assert parse_report_date("18/07/2026") == date(2026, 7, 18)
+
+    def test_invalid(self):
+        with pytest.raises(DateParseError):
+            parse_report_date("bugun")
+        with pytest.raises(DateParseError):
+            parse_report_date("32.13.2026")
+
+    def test_join_args(self):
+        assert join_command_args(["18.07.2026"]) == "18.07.2026"
+        assert join_command_args([]) == ""
+        assert join_command_args(None) == ""
 
 
 class TestSchedule:
@@ -238,6 +265,14 @@ class TestExcel:
     def test_filename(self):
         when = datetime(2026, 7, 18, 12, 27)
         assert report_filename(when) == "performans_raporu_2026-07-18_1227.xlsx"
+        assert (
+            report_filename(when, report_date=date(2026, 7, 18), full_day=True)
+            == "performans_raporu_2026-07-18_tum_gun.xlsx"
+        )
+        assert (
+            report_filename(when, report_date=date(2026, 7, 17), full_day=False)
+            == "performans_raporu_2026-07-17_1227.xlsx"
+        )
 
 
 class TestBotGuards:

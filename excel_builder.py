@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from io import BytesIO
 from typing import Any
 
@@ -90,5 +90,18 @@ def _durations_look_suspicious(rows: list[dict[str, Any]]) -> bool:
     return checked > 0 and suspicious >= max(1, checked // 2)
 
 
-def report_filename(when: datetime) -> str:
-    return f"performans_raporu_{when.strftime('%Y-%m-%d_%H%M')}.xlsx"
+def report_filename(
+    when: datetime,
+    *,
+    report_date: date | None = None,
+    full_day: bool = False,
+) -> str:
+    """
+    when: dosyanın üretildiği an (saat damgası)
+    report_date: rapor günü (tarihli /rapor için)
+    full_day: tüm gün raporu ise dosya adına _tum_gun ekle
+    """
+    day = (report_date or when.date()).strftime("%Y-%m-%d")
+    if full_day and report_date is not None:
+        return f"performans_raporu_{day}_tum_gun.xlsx"
+    return f"performans_raporu_{day}_{when.strftime('%H%M')}.xlsx"
