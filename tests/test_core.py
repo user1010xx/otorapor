@@ -139,8 +139,8 @@ class TestNormalize:
                 "stats": {
                     "outbound": {
                         "count": 365,
-                        "talk_time": 1908,
-                        "ring_time": 4176,
+                        "outbound_talk_time": 1908,
+                        "outbound_ring_time": 4176,
                     }
                 },
             }
@@ -150,6 +150,50 @@ class TestNormalize:
         assert row["Dış Arama Sayısı"] == 365
         assert row["Dış Arama Süresi"] == "00:31:48"
         assert row["Dış Arama Çaldırma Süresi"] == "01:09:36"
+
+    def test_metrics_array_payload(self):
+        row = normalize_row(
+            {
+                "extension": 608,
+                "agent_name": "selcuk",
+                "metrics": [
+                    {"code": "outbound_calls", "value": 891},
+                    {"code": "outbound_talk_time", "value": 4644},
+                    {"code": "outbound_ring_time", "value": 8892},
+                ],
+            }
+        )
+        assert row["Dahili Adı"] == "selcuk"
+        assert row["Dış Arama Sayısı"] == 891
+        assert row["Dış Arama Süresi"] == "01:17:24"
+        assert row["Dış Arama Çaldırma Süresi"] == "02:28:12"
+
+    def test_hhmmss_string_durations(self):
+        row = normalize_row(
+            {
+                "Dahili": 583,
+                "Dahili Adı": "adem",
+                "Dış Arama Sayısı": 365,
+                "Dış Arama Süresi": "00:31:48",
+                "Dış Arama Çaldırma Süresi": "01:09:36",
+            }
+        )
+        assert row["Dış Arama Süresi"] == "00:31:48"
+        assert row["Dış Arama Çaldırma Süresi"] == "01:09:36"
+
+    def test_rejects_tiny_avg_when_outbound_totals_exist(self):
+        row = normalize_row(
+            {
+                "extension": 608,
+                "outboundCalls": 891,
+                "callDuration": 1,
+                "ringTime": 2,
+                "outboundCallDuration": 4644,
+                "outboundRingDuration": 8892,
+            }
+        )
+        assert row["Dış Arama Süresi"] == "01:17:24"
+        assert row["Dış Arama Çaldırma Süresi"] == "02:28:12"
 
     def test_missing_fields_defaults(self):
         row = normalize_row({})
