@@ -1,0 +1,20 @@
+.env
+.env.local
+.env.*.local
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.xlsx
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.idea/
+.vscode/
+*.log
+tmp/
+.DS_Store
+Thumbs.db
+openapi.json
+toniva dokument/
